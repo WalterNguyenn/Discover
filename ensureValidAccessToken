@@ -1,0 +1,28 @@
+const { User } = require('../models/User');
+const { refreshAccessToken } = require('../utils/spotify');
+
+// Middleware to ensure the user has a valid access token
+const ensureValidAccessToken = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).send('User not found');
+    }
+
+    // Check if accessToken is valid (add your expiration logic here if needed)
+    if (!user.accessToken) {
+      return res.status(401).send('Access token is missing');
+    }
+
+    // Optionally, refresh the token if expired
+    const newAccessToken = await refreshAccessToken(user);
+    req.user.accessToken = newAccessToken;
+    next();
+
+  } catch (error) {
+    console.error('Error ensuring valid access token:', error.message);
+    res.status(500).send('Error with access token');
+  }
+};
+
+module.exports = { ensureValidAccessToken };

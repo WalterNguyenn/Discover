@@ -1,122 +1,139 @@
 require('dotenv').config();
+
 const express = require('express');
 const passport = require('passport');
 const SpotifyStrategy = require('passport-spotify').Strategy;
+const LocalStrategy = require('passport-local').Strategy;
+const bcrypt = require('bcrypt');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
-const apiRoutes = require('./Routes/api');
-const { User } = require('./Models/User');
+const cors = require('cors');
+const { User } = require('./models/User');
+const apiRoutes = require('./routes/api');
+const authRoutes = require('./routes/auth');
 
-// Check if MONGO_URI exists in environment variables
-if (!process.env.MONGO_URI) {
-  throw new Error('MONGO_URI is not defined in .env file.');
-}
-
-// Connect to MongoDB
-mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => {
-    console.error('MongoDB connection error:', err);
-    process.exit(1); // Exit process if MongoDB fails to connect
-  });
-
-// Create Express application
 const app = express();
 
-// Middleware for parsing JSON bodies
-app.use(bodyParser.json());
-
-// Configure session with MongoStore
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'mySecret',
-  resave: false,
-  saveUninitialized: false,
-  store: MongoStore.create({
-    mongoUrl: process.env.MONGO_URI // Make sure this is set correctly
-  })
+// CORS Configuration
+app.use(cors({
+    origin: 'http://localhost:3000', // Frontend origin
+    credentials: true, // Allow credentials (cookies, sessions)
 }));
 
-// Initialize Passport
+// Body parser
+app.use(bodyParser.json());
+
+// Connect to MongoDB
+mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/spotify-app')
+    .then(() => console.log('Connected to MongoDB'))
+    .catch(err => {
+        console.error('Could not connect to MongoDB:', err);
+        process.exit(1); // Exit process if DB connection fails
+    });
+
+// Session setup
+app.use(session({
+    secret: process.env.SESSION_SECRET || 'your-secret-key',
+    resave: false,
+    saveUninitialized: false,
+    store: MongoStore.create({
+        mongoUrl: process.env.MONGO_URI || 'mongodb://localhost:27017/spotify-app',
+        collectionName: 'sessions',
+        ttl: 24 * 60 * 60 // 1 day
+    }),
+    cookie: {
+        maxAge: 24 * 60 * 60 * 1000, // 1 day
+        httpOnly: true, // Prevent client-side JavaScript from accessing the cookie
+        secure: process.env.NODE_ENV === 'production', // Only set the cookie over HTTPS
+        sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax' // Protect against CSRF
+    }
+}));
+
+// Initialize Passport and sessions
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Configure Spotify strategy
-passport.use(new SpotifyStrategy({
-  clientID: process.env.SPOTIFY_CLIENT_ID,
-  clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
-  callbackURL: process.env.SPOTIFY_CALLBACK_URL
-}, async function (accessToken, refreshToken, expires_in, profile, done) {
-  try {
-    let user = await User.findOne({ spotifyId: profile.id });
-
-    if (!user) {
-      user = new User({
-        spotifyId: profile.id,
-        displayName: profile.displayName,
-        email: profile.emails && profile.emails[0] ? profile.emails[0].value : null,
-        accessToken: accessToken,
-        refreshToken: refreshToken
-      });
-    } else {
-      user.accessToken = accessToken;
-      user.refreshToken = refreshToken;
+// Passport local strategy for authentication
+passport.use(new LocalStrategy({
+    usernameField: 'email',
+    passwordField: 'password'
+}, async (email, password, done) => {
+    try {
+        const user = await User.findOne({ email });
+        if (!user) {
+            return done(null, false, { message: 'User not found' });
+        }
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return done(null, false, { message: 'Incorrect password' });
+        }
+        return done(null, user);
+    } catch (err) {
+        return done(err);
     }
-
-    await user.save();
-    return done(null, user);
-  } catch (err) {
-    console.error('Error during Spotify authentication:', err);
-    return done(err, null);
-  }
 }));
 
-// Serialize and deserialize user for session management
+// Spotify authentication strategy
+passport.use(new SpotifyStrategy({
+    clientID: process.env.SPOTIFY_CLIENT_ID,
+    clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
+    callbackURL: process.env.SPOTIFY_CALLBACK_URL
+}, async (accessToken, refreshToken, profile, done) => {
+    try {
+        let user = await User.findOne({ spotifyId: profile.id });
+        
+        if (!user) {
+            // Handle case where Spotify doesn't provide a displayName or username
+            const username = profile.displayName || `user_${profile.id}`; // Generate a default username if none is provided
+
+            user = new User({
+                spotifyId: profile.id,
+                displayName: profile.displayName || "Unknown User", // Fallback if displayName is null
+                username, // Fallback if username is not provided
+                email: profile.emails?.[0]?.value, // Check if email exists
+                accessToken,
+                refreshToken
+            });
+        } else {
+            user.accessToken = accessToken;
+            user.refreshToken = refreshToken;
+        }
+
+        await user.save();
+        return done(null, user);
+    } catch (err) {
+        return done(err, null);
+    }
+}));
+
+// Serialize and deserialize user for session handling
 passport.serializeUser((user, done) => {
-  done(null, user.id);
+    done(null, user.id); // Only store the user ID in session
 });
 
 passport.deserializeUser(async (id, done) => {
-  try {
-    const user = await User.findById(id);
-    if (!user) {
-      return done(new Error('User not found'));
+    try {
+        const user = await User.findById(id);
+        done(null, user); // Attach the full user object to req.user
+    } catch (err) {
+        done(err, null);
     }
-    done(null, user);
-  } catch (err) {
-    console.error('Error deserializing user:', err);
-    done(err, null);
-  }
 });
 
-// Spotify Authentication Routes
-app.get('/auth/spotify', passport.authenticate('spotify', {
-  scope: ['user-read-email', 'user-read-private', 'playlist-read-private', 'user-library-read', 'user-top-read']
-}));
-
-app.get('/auth/spotify/callback',
-  passport.authenticate('spotify', { failureRedirect: '/login' }),
-  (req, res) => res.redirect('/')
-);
-
-// Use API routes
+// Routes
+app.use('/auth', authRoutes);
 app.use('/api', apiRoutes);
 
-// General error handler
+// Global error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).send('Something went wrong!');
+    console.error(err.stack);
+    res.status(500).send(process.env.NODE_ENV === 'production' ? 'Internal Server Error' : `Error: ${err.message}`);
 });
-
-// Home route
-app.get('/', (req, res) => {
-  res.send('Welcome to the Spotify App');
-});
-
 
 // Start the server
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3001;
 app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
+    console.log(`Server is running on port ${port}`);
 });

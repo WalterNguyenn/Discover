@@ -1,7 +1,6 @@
 const axios = require('axios');
-const User = require('../Models/User');
+const { User } = require('../models/User');
 
-// Function to refresh Spotify access token
 async function refreshAccessToken(user) {
   try {
     const response = await axios({
@@ -21,13 +20,10 @@ async function refreshAccessToken(user) {
     user.accessToken = newAccessToken;
     await user.save();
     return newAccessToken;
-
   } catch (error) {
     console.error('Error refreshing access token:', error);
     throw new Error('Unable to refresh access token');
   }
 }
 
-module.exports = {
-  refreshAccessToken
-};
+module.exports = { refreshAccessToken };

@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
-const { User } = require('../Models/User'); // Path to your User model
-const Track = require('../Models/Track');   // Path to your Track model
+const { User } = require('../models/User'); // Path to your User model
+const Track = require('../models/Track');   // Path to your Track model
 
 // Transform Spotify track into your schema format
 const transformTrack = (spotifyTrack) => ({

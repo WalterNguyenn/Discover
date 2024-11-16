@@ -7,10 +7,10 @@ const artistSchema = new mongoose.Schema({
   genres: [String],
   popularity: Number,
   external_url: String,
-  uri: String
+  uri: String,
 });
 
 // Compile the Artist model
 const Artist = mongoose.model('Artist', artistSchema);
 
-module.exports = Artist;
+module.exports = { Artist };

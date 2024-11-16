@@ -1,31 +1,16 @@
 const mongoose = require('mongoose');
 
-// Define the Track schema
 const trackSchema = new mongoose.Schema({
-  spotifyId: String,
+  spotifyId: { type: String, unique: true }, // Unique constraint on Spotify ID
   name: String,
+  artist: String,
   album: {
     name: String,
-    album_type: String,
-    external_urls: { spotify: String },
-    images: [{ height: Number, url: String, width: Number }],
     release_date: String,
-    uri: String
   },
-  artists: [{
-    name: String,
-    spotifyId: String,
-    external_urls: { spotify: String }
-  }],
   duration_ms: Number,
-  explicit: Boolean,
-  popularity: Number,
-  external_url: String,
-  preview_url: String,
-  uri: String
 });
 
-// Compile the Track model
 const Track = mongoose.model('Track', trackSchema);
 
 module.exports = Track;

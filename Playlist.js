@@ -7,12 +7,12 @@ const playlistSchema = new mongoose.Schema({
   description: String,
   total_tracks: Number,
   external_urls: {
-    spotify: String
+    spotify: String,
   },
-  tracks: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Track' }] // Reference to track objects
+  tracks: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Track' }],
 });
 
 // Compile the Playlist model
 const Playlist = mongoose.model('Playlist', playlistSchema);
 
-module.exports = Playlist;
+module.exports = { Playlist };
